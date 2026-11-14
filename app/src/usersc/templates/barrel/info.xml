@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<template>
+  <name>Barrel</name>
+  <author>Barrel Book</author>
+  <website></website>
+  <version>1.0.0</version>
+  <release>November 11, 2026</release>
+  <tested>6.1.7</tested>
+  <ultramenu>0</ultramenu>
+  <dbnav>0</dbnav>
+  <dropnav>0</dropnav>
+  <filenav>1</filenav>
+  <navstyle>Default</navstyle>
+  <library>Boostrap 5</library>
+  <customizer>0</customizer>
+  <navopts>Default</navopts>
+</template>

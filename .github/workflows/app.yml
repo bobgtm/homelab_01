@@ -1,0 +1,60 @@
+name: app
+
+on:
+  pull_request:
+    branches: [main]
+    paths: ["app/**", ".github/workflows/app.yml"]
+  push:
+    branches: [main]
+    paths: ["app/**", ".github/workflows/app.yml"]
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  IMAGE: ${{ vars.ACR_NAME }}.azurecr.io/bourbon
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build image
+        run: docker build -t $IMAGE:${{ github.sha }} -t $IMAGE:latest app
+
+      - name: Azure login
+        if: github.event_name == 'push'
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Push image
+        if: github.event_name == 'push'
+        run: |
+          az acr login --name ${{ vars.ACR_NAME }}
+          docker push --all-tags $IMAGE
+
+  deploy:
+    if: github.event_name == 'push'
+    needs: build
+    runs-on: ubuntu-latest
+    environment: dev
+    steps:
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Roll out the new image
+        run: |
+          az extension add --name containerapp --upgrade --only-show-errors
+          if az containerapp show -n ca-bourbon -g rg-platform-lab-dev > /dev/null 2>&1; then
+            az containerapp update -n ca-bourbon -g rg-platform-lab-dev --image $IMAGE:${{ github.sha }}
+          else
+            echo "ca-bourbon isn't deployed yet; Terraform will start it from :latest." >> $GITHUB_STEP_SUMMARY
+          fi
