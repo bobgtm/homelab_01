@@ -5,3 +5,7 @@
 .env
 .venv/
 tfplan
+
+# Ignore SQL commit file and DB Contents
+app/db-init
+*.sql
