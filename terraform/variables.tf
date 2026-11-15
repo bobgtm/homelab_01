@@ -1,6 +1,6 @@
 variable "location" {
   type    = string
-  default = "eastus2"
+  default = "westus2"
 }
 
 variable "readers_group_id" {
