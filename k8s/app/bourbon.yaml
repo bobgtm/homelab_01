@@ -1,6 +1,7 @@
 # Barrel Book on AKS. Applied by .github/workflows/app.yml, which fills in the ${...} values with
-# envsubst from Terraform outputs and the image just built. The DB password comes from the
-# bourbon-db Secret, which the workflow creates from Terraform state (it is never in this repo).
+# envsubst from Terraform outputs and the image just built. The app logs in as bourbon_app (its own
+# account, set up by db-setup-job.yaml) over TLS; its password is in the bourbon-db-app Secret,
+# which the workflow generates once (it is never in this repo or in Terraform state).
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -57,12 +58,15 @@ spec:
             - name: DB_NAME
               value: "${DB_NAME}"
             - name: DB_USER
-              value: "${DB_USER}"
+              value: bourbon_app
             - name: DB_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: bourbon-db
+                  name: bourbon-db-app
                   key: password
+            # Connect to MySQL over TLS, verifying Azure's certificate against the image's CA bundle.
+            - name: DB_SSL_CA
+              value: /etc/ssl/certs/ca-certificates.crt
             - name: USERSPICE_ENV_PATH
               value: /data/userspice/.userspice.env
           volumeMounts:

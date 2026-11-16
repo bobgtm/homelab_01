@@ -99,7 +99,7 @@ jobs:
             echo "APP_HOST=$(terraform output -raw app_hostname)"
             echo "DB_HOST=$(terraform output -raw db_fqdn)"
             echo "DB_NAME=$(terraform output -raw db_name)"
-            echo "DB_USER=$(terraform output -raw db_user)"
+            echo "DB_ADMIN_USER=$(terraform output -raw db_user)"
           } >> "$GITHUB_ENV"
           echo "ready=true" >> "$GITHUB_OUTPUT"
 
@@ -128,16 +128,36 @@ jobs:
             echo "cert-manager webhook not ready yet; retrying in 10s"; sleep 10
           done
 
-      - name: Deploy Barrel Book
+      - name: Set up the app's database account
         if: steps.infra.outputs.ready == 'true'
         run: |
           kubectl create namespace bourbon --dry-run=client -o yaml | kubectl apply -f -
-          # The DB password goes from Terraform state straight into a Kubernetes Secret; it is never printed.
+          # The app's own password: generated once, kept only in this Secret (never printed, not in Terraform state).
+          if ! kubectl -n bourbon get secret bourbon-db-app > /dev/null 2>&1; then
+            openssl rand -hex 24 | tr -d '\n' \
+              | kubectl -n bourbon create secret generic bourbon-db-app --from-file=password=/dev/stdin
+          fi
+          # The admin password goes from Terraform state into a Secret used only by the setup Job,
+          # and both are deleted when this step ends, whether it succeeds or fails.
+          trap 'kubectl -n bourbon delete job bourbon-db-setup --ignore-not-found; kubectl -n bourbon delete secret bourbon-db-admin --ignore-not-found' EXIT
           terraform -chdir=terraform output -raw db_password \
-            | kubectl -n bourbon create secret generic bourbon-db --from-file=password=/dev/stdin --dry-run=client -o yaml \
+            | kubectl -n bourbon create secret generic bourbon-db-admin --from-file=password=/dev/stdin --dry-run=client -o yaml \
             | kubectl apply -f -
-          envsubst '$IMAGE_REF $APP_HOST $DB_HOST $DB_NAME $DB_USER' < k8s/app/bourbon.yaml | kubectl apply -f -
+          kubectl -n bourbon delete job bourbon-db-setup --ignore-not-found
+          envsubst '$IMAGE_REF $DB_HOST $DB_NAME $DB_ADMIN_USER' < k8s/app/db-setup-job.yaml | kubectl apply -f -
+          if ! kubectl -n bourbon wait --for=condition=complete job/bourbon-db-setup --timeout=180s; then
+            kubectl -n bourbon logs job/bourbon-db-setup || true
+            exit 1
+          fi
+          kubectl -n bourbon logs job/bourbon-db-setup
+
+      - name: Deploy Barrel Book
+        if: steps.infra.outputs.ready == 'true'
+        run: |
+          envsubst '$IMAGE_REF $APP_HOST $DB_HOST $DB_NAME' < k8s/app/bourbon.yaml | kubectl apply -f -
           kubectl -n bourbon rollout status deployment/bourbon --timeout=10m
+          # The app now logs in as bourbon_app; remove the old Secret that held the admin password.
+          kubectl -n bourbon delete secret bourbon-db --ignore-not-found
           {
             echo "### Barrel Book is live: https://$APP_HOST"
             echo "Image: \`$IMAGE_REF\`. On the very first deploy the HTTPS certificate can take a minute or two to arrive."

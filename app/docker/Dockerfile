@@ -26,6 +26,8 @@ FROM base AS prod
 ARG VERSION=dev
 LABEL org.opencontainers.image.title="Barrel Book" org.opencontainers.image.version="${VERSION}"
 COPY --chown=www-data:www-data src/ /var/www/html/
+# Run by the db-setup Kubernetes Job to create the app's own MySQL account (kept outside the web root).
+COPY docker/db-setup.php /opt/barrelbook/db-setup.php
 # The database schema/seed (db-init/bourbon.sql) is not baked in: it is gitignored, and it is
 # loaded into the database separately (Compose mounts it into MariaDB; Azure MySQL is loaded once by hand).
 RUN rm -rf /var/www/html/bourbon/images/uploads && mkdir -p /data/sessions && chown -R www-data:www-data /data \
