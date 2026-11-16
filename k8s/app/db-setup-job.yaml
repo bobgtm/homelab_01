@@ -1,0 +1,45 @@
+# Creates/updates the app's own MySQL account (bourbon_app: this database only, TLS required).
+# Run by .github/workflows/app.yml before each rollout; the workflow fills in ${...} with envsubst,
+# then deletes this Job and the bourbon-db-admin Secret, so the admin password doesn't stay in the cluster.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: bourbon-db-setup
+  namespace: bourbon
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 600
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: db-setup
+          image: ${IMAGE_REF}
+          command: ["php", "/opt/barrelbook/db-setup.php"]
+          env:
+            - name: DB_HOST
+              value: "${DB_HOST}"
+            - name: DB_NAME
+              value: "${DB_NAME}"
+            - name: DB_SSL_CA
+              value: /etc/ssl/certs/ca-certificates.crt
+            - name: ADMIN_USER
+              value: "${DB_ADMIN_USER}"
+            - name: ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: bourbon-db-admin
+                  key: password
+            - name: APP_USER
+              value: bourbon_app
+            - name: APP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: bourbon-db-app
+                  key: password
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 128Mi

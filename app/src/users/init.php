@@ -39,6 +39,17 @@ for($i = 1; $i < $self_path_length; $i++){
 
 require_once $abs_us_root.$us_url_root.'users/helpers/helpers.php';
 
+// PDO options for UserSpice's DB class. They replace its defaults, so keep its sql_mode setting.
+// When DB_SSL_CA (a CA bundle path) is set, as on AKS, connect over TLS and verify the server's
+// certificate and hostname. Local Compose doesn't set it, so its MariaDB connection stays plain.
+$bb_pdo_options = [
+	(defined('Pdo\Mysql::ATTR_INIT_COMMAND') ? \Pdo\Mysql::ATTR_INIT_COMMAND : PDO::MYSQL_ATTR_INIT_COMMAND) => "SET SESSION sql_mode = ''",
+];
+if (getenv('DB_SSL_CA')) {
+	$bb_pdo_options[defined('Pdo\Mysql::ATTR_SSL_CA') ? \Pdo\Mysql::ATTR_SSL_CA : PDO::MYSQL_ATTR_SSL_CA] = getenv('DB_SSL_CA');
+	$bb_pdo_options[defined('Pdo\Mysql::ATTR_SSL_VERIFY_SERVER_CERT') ? \Pdo\Mysql::ATTR_SSL_VERIFY_SERVER_CERT : PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT] = true;
+}
+
 // Set config
 $GLOBALS['config'] = array(
 	'mysql'      => array(
@@ -46,6 +57,7 @@ $GLOBALS['config'] = array(
 'username'     => getenv('DB_USER'),
 'password'     => getenv('DB_PASSWORD'),
 'db'           => getenv('DB_NAME'),
+'options'      => $bb_pdo_options,
 ),
 'remember'        => array(
   'cookie_name'   => getenv('US_COOKIE_NAME') ?: '3WbkvDUsDSdM9Aeg9GDF6',
