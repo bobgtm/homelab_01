@@ -1,6 +1,11 @@
 services:
   app:
-    build: . 
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      target: dev
+    volumes:
+      - ./src:/var/www/html
     ports:
       - "8080:80"
     environment:
