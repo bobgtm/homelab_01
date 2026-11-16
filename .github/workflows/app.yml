@@ -1,6 +1,7 @@
 name: app
 
 on:
+  workflow_dispatch:
   pull_request:
     branches: [main]
     paths: ["app/**", ".github/workflows/app.yml"]
@@ -14,6 +15,8 @@ permissions:
 
 env:
   IMAGE: ${{ vars.ACR_NAME }}.azurecr.io/bourbon
+  APP_NAME: ca-bourbon
+  APP_RG: homelab_01-dev
 
 jobs:
   build:
@@ -22,10 +25,13 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Build image
-        run: docker build -t $IMAGE:${{ github.sha }} -t $IMAGE:latest app
+        run: >
+          docker build -f app/docker/Dockerfile --target prod
+          --build-arg VERSION=${{ github.sha }}
+          -t $IMAGE:${{ github.sha }} -t $IMAGE:latest app
 
       - name: Azure login
-        if: github.event_name == 'push'
+        if: github.event_name != 'pull_request'
         uses: azure/login@v2
         with:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
@@ -33,13 +39,13 @@ jobs:
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
       - name: Push image
-        if: github.event_name == 'push'
+        if: github.event_name != 'pull_request'
         run: |
           az acr login --name ${{ vars.ACR_NAME }}
           docker push --all-tags $IMAGE
 
   deploy:
-    if: github.event_name == 'push'
+    if: github.event_name != 'pull_request'
     needs: build
     runs-on: ubuntu-latest
     environment: dev
@@ -53,8 +59,8 @@ jobs:
       - name: Roll out the new image
         run: |
           az extension add --name containerapp --upgrade --only-show-errors
-          if az containerapp show -n ca-bourbon -g rg-platform-lab-dev > /dev/null 2>&1; then
-            az containerapp update -n ca-bourbon -g rg-platform-lab-dev --image $IMAGE:${{ github.sha }}
+          if az containerapp show -n $APP_NAME -g $APP_RG > /dev/null 2>&1; then
+            az containerapp update -n $APP_NAME -g $APP_RG --image $IMAGE:${{ github.sha }}
           else
-            echo "ca-bourbon isn't deployed yet; Terraform will start it from :latest." >> $GITHUB_STEP_SUMMARY
+            echo "$APP_NAME isn't deployed yet; Terraform will start it from :latest." >> $GITHUB_STEP_SUMMARY
           fi
