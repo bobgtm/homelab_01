@@ -52,7 +52,7 @@ resource "azurerm_mysql_flexible_server_configuration" "tls" {
   value               = "OFF"
 }
 
-# Lab shortcut: lets any Azure service reach the server, including Container Apps.
+# Lab shortcut: lets any Azure service reach the server, including the AKS cluster's outbound IP.
 resource "azurerm_mysql_flexible_server_firewall_rule" "azure" {
   name                = "allow-azure-services"
   resource_group_name = azurerm_resource_group.dev.name
@@ -70,112 +70,18 @@ resource "azurerm_mysql_flexible_server_firewall_rule" "admin" {
   end_ip_address      = var.admin_ip
 }
 
-# --- Container App ---
-
-resource "azurerm_log_analytics_workspace" "dev" {
-  name                = "log-platform-lab-dev"
-  resource_group_name = azurerm_resource_group.dev.name
-  location            = azurerm_resource_group.dev.location
-  sku                 = "PerGB2018"
-  retention_in_days   = 30
-  tags                = local.tags
-}
-
-resource "azurerm_container_app_environment" "dev" {
-  name                       = "cae-platform-lab-dev"
-  resource_group_name        = azurerm_resource_group.dev.name
-  location                   = azurerm_resource_group.dev.location
-  log_analytics_workspace_id = azurerm_log_analytics_workspace.dev.id
-  tags                       = local.tags
-}
-
-resource "azurerm_user_assigned_identity" "app" {
-  name                = "id-bourbon"
-  resource_group_name = azurerm_resource_group.dev.name
-  location            = azurerm_resource_group.dev.location
-  tags                = local.tags
-}
-
-resource "azurerm_role_assignment" "acr_pull" {
-  scope                = data.azurerm_container_registry.shared.id
-  role_definition_name = "AcrPull"
-  principal_id         = azurerm_user_assigned_identity.app.principal_id
-}
-
-resource "azurerm_container_app" "bourbon" {
-  name                         = "ca-bourbon"
-  container_app_environment_id = azurerm_container_app_environment.dev.id
-  resource_group_name          = azurerm_resource_group.dev.name
-  revision_mode                = "Single"
-  tags                         = local.tags
-
-  identity {
-    type         = "UserAssigned"
-    identity_ids = [azurerm_user_assigned_identity.app.id]
-  }
-
-  registry {
-    server   = data.azurerm_container_registry.shared.login_server
-    identity = azurerm_user_assigned_identity.app.id
-  }
-
-  secret {
-    name  = "db-password"
-    value = random_password.db.result
-  }
-
-  ingress {
-    external_enabled = true
-    target_port      = 80
-    traffic_weight {
-      percentage      = 100
-      latest_revision = true
-    }
-  }
-
-  template {
-    min_replicas = 0
-    max_replicas = 1
-
-    container {
-      name   = "bourbon"
-      image  = "${data.azurerm_container_registry.shared.login_server}/bourbon:latest"
-      cpu    = 0.25
-      memory = "0.5Gi"
-
-      env {
-        name  = "DB_HOST"
-        value = azurerm_mysql_flexible_server.db.fqdn
-      }
-      env {
-        name  = "DB_NAME"
-        value = azurerm_mysql_flexible_database.bourbon.name
-      }
-      env {
-        name  = "DB_USER"
-        value = azurerm_mysql_flexible_server.db.administrator_login
-      }
-      env {
-        name        = "DB_PASSWORD"
-        secret_name = "db-password"
-      }
-    }
-  }
-
-  # The app pipeline owns which image is running; Terraform only sets the starting point.
-  lifecycle {
-    ignore_changes = [template[0].container[0].image]
-  }
-
-  depends_on = [azurerm_role_assignment.acr_pull]
-}
-
-output "app_url" {
-  value = "https://${azurerm_container_app.bourbon.ingress[0].fqdn}"
-}
+# The app runs on AKS (aks.tf); the deploy workflow reads these outputs.
 
 output "db_fqdn" {
   value = azurerm_mysql_flexible_server.db.fqdn
+}
+
+output "db_name" {
+  value = azurerm_mysql_flexible_database.bourbon.name
+}
+
+output "db_user" {
+  value = azurerm_mysql_flexible_server.db.administrator_login
 }
 
 output "db_password" {

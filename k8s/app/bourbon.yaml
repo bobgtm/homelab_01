@@ -1,0 +1,135 @@
+# Barrel Book on AKS. Applied by .github/workflows/app.yml, which fills in the ${...} values with
+# envsubst from Terraform outputs and the image just built. The DB password comes from the
+# bourbon-db Secret, which the workflow creates from Terraform state (it is never in this repo).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: bourbon
+---
+# Photos uploaded by admins, PHP sessions and UserSpice's encryption key. Survives restarts and deploys.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: bourbon-data
+  namespace: bourbon
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: managed-csi
+  resources:
+    requests:
+      storage: 4Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bourbon
+  namespace: bourbon
+  labels:
+    app: bourbon
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate # the data disk attaches to one pod at a time
+  selector:
+    matchLabels:
+      app: bourbon
+  template:
+    metadata:
+      labels:
+        app: bourbon
+    spec:
+      initContainers:
+        - name: prepare-data
+          image: ${IMAGE_REF}
+          command: ["sh", "-c", "mkdir -p /data/uploads /data/sessions /data/userspice && chown -R www-data:www-data /data"]
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      containers:
+        - name: bourbon
+          image: ${IMAGE_REF}
+          ports:
+            - name: http
+              containerPort: 80
+          env:
+            - name: DB_HOST
+              value: "${DB_HOST}"
+            - name: DB_NAME
+              value: "${DB_NAME}"
+            - name: DB_USER
+              value: "${DB_USER}"
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: bourbon-db
+                  key: password
+            - name: USERSPICE_ENV_PATH
+              value: /data/userspice/.userspice.env
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: data
+              mountPath: /var/www/html/bourbon/images/uploads
+              subPath: uploads
+          # Only send visitors to the pod while it can reach the database.
+          readinessProbe:
+            httpGet:
+              path: /healthz.php
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+          # Restart only if Apache stops answering (not on database blips).
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 1Gi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: bourbon-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: bourbon
+  namespace: bourbon
+spec:
+  selector:
+    app: bourbon
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+# Public entry point: https://${APP_HOST}, with a Let's Encrypt certificate.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: bourbon
+  namespace: bourbon
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts: ["${APP_HOST}"]
+      secretName: bourbon-tls
+  rules:
+    - host: "${APP_HOST}"
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: bourbon
+                port:
+                  name: http

@@ -1,0 +1,28 @@
+# Traefik ingress controller (Helm chart traefik/traefik 42.1.3), installed by .github/workflows/app.yml.
+# Receives all public traffic on an Azure load balancer and routes it to the app by hostname.
+
+service:
+  # The workflow also sets the annotation
+  #   service.beta.kubernetes.io/azure-dns-label-name: <dns_label from Terraform>
+  # which names the public IP <dns_label>.<region>.cloudapp.azure.com.
+  spec:
+    # Keep each visitor's real IP address (otherwise every request looks like it came from the node).
+    externalTrafficPolicy: Local
+
+ports:
+  web:
+    # Let cert-manager's Let's Encrypt check answer on plain HTTP; everything else is redirected to HTTPS.
+    allowACMEByPass: true
+    http:
+      redirections:
+        entryPoint:
+          to: websecure
+          scheme: https
+          permanent: true
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    memory: 256Mi
