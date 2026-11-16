@@ -26,10 +26,19 @@ FROM base AS prod
 ARG VERSION=dev
 LABEL org.opencontainers.image.title="Barrel Book" org.opencontainers.image.version="${VERSION}"
 COPY --chown=www-data:www-data src/ /var/www/html/
-COPY db-init/bourbon.sql /docker/sql.sql
-RUN rm -rf /var/www/html/bourbon/images/uploads && mkdir -p /data && chown www-data:www-data /data \
+# The database schema/seed (db-init/bourbon.sql) is not baked in: it is gitignored, and it is
+# loaded into the database separately (Compose mounts it into MariaDB; Azure MySQL is loaded once by hand).
+RUN rm -rf /var/www/html/bourbon/images/uploads && mkdir -p /data/sessions && chown -R www-data:www-data /data \
  && echo "${VERSION}" > /var/www/html/version.txt
 # Production PHP: hide version and errors from visitors (errors still go to the container log).
-RUN printf 'expose_php = Off\ndisplay_errors = Off\nlog_errors = On\nerror_log = /dev/stderr\n' > /usr/local/etc/php/conf.d/zz-production.ini
-ENV BB_DATA_DIR=/data BASE_SCHEMA=/docker/sql.sql
+# Sessions live on the data volume so logins survive pod restarts.
+RUN printf 'expose_php = Off\ndisplay_errors = Off\nlog_errors = On\nerror_log = /dev/stderr\nsession.save_path = /data/sessions\n' > /usr/local/etc/php/conf.d/zz-production.ini
+# Behind Traefik on AKS (pod network 10.244.0.0/16, see terraform/aks.tf):
+#  - take the visitor's IP from X-Forwarded-For, so UserSpice's per-IP login limits and bans see real visitors;
+#  - treat X-Forwarded-Proto: https as HTTPS, so UserSpice builds https links and marks cookies Secure.
+# Only Traefik can reach the pod, and it overwrites both headers.
+RUN a2enmod remoteip \
+ && printf 'RemoteIPHeader X-Forwarded-For\nRemoteIPInternalProxy 10.244.0.0/16\nSetEnvIf X-Forwarded-Proto "^https$" HTTPS=on\n' > /etc/apache2/conf-available/behind-proxy.conf \
+ && a2enconf behind-proxy
+ENV BB_DATA_DIR=/data
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s CMD php -r 'exit(@file_get_contents("http://127.0.0.1/healthz.php") === "ok\n" ? 0 : 1);'

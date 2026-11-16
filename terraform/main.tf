@@ -36,6 +36,19 @@ resource "azurerm_network_security_group" "apps" {
     source_address_prefix      = "*"
     destination_address_prefix = "*"
   }
+
+  # Plain HTTP: redirected to HTTPS by Traefik, and used by Let's Encrypt to verify the site.
+  security_rule {
+    name                       = "allow-http-in"
+    priority                   = 110
+    direction                  = "Inbound"
+    access                     = "Allow"
+    protocol                   = "Tcp"
+    source_port_range          = "*"
+    destination_port_range     = "80"
+    source_address_prefix      = "*"
+    destination_address_prefix = "*"
+  }
 }
 
 resource "azurerm_subnet_network_security_group_association" "apps" {

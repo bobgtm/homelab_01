@@ -3,8 +3,10 @@ name: terraform
 on:
   pull_request:
     branches: [main]
+    paths: ["terraform/**", ".github/workflows/terraform.yml"]
   push:
     branches: [main]
+    paths: ["terraform/**", ".github/workflows/terraform.yml"]
 
 permissions:
   id-token: write   # lets the job request an OIDC token
@@ -23,6 +25,7 @@ env:
   TF_IN_AUTOMATION: "true"
   TF_VAR_acr_name: ${{ vars.ACR_NAME }}
   TF_VAR_admin_ip: ${{ vars.ADMIN_IP }}
+  TF_VAR_cluster_admin_ids: ${{ vars.CLUSTER_ADMIN_IDS || '[]' }}
 
 defaults:
   run:

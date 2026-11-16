@@ -7,6 +7,13 @@ $noPHPInfo = false;
 require_once 'classes/class.autoloader.php';
 
 ini_set('session.cookie_httponly', 1);
+ini_set('session.cookie_samesite', 'Lax');
+ini_set('session.use_strict_mode', 1);
+// On AKS, HTTPS ends at Traefik; Apache sets HTTPS=on from X-Forwarded-Proto (see docker/Dockerfile).
+// Local http://localhost:8080 has no HTTPS, so cookies stay non-Secure there and login still works.
+if (Server::get('HTTPS') !== '' && Server::get('HTTPS') !== 'off') {
+	ini_set('session.cookie_secure', 1);
+}
 session_start();
 // disables the feature that prevents the updater from installing languages you didn't have before the update
 // $disable_language_purge = true;
@@ -88,7 +95,7 @@ if($user->isLoggedIn()){
 $userspice_nonce = base64_encode(random_bytes(16));
 // Forces SSL verification in cURL requests to UserSpice API
 // Will most likely break on localhost or self-signed certificates
-define('EXTRA_CURL_SECURITY', false);
+define('EXTRA_CURL_SECURITY', true);
 require_once $abs_us_root.$us_url_root."users/includes/loader.php";
 $timezone_string = 'America/New_York';
 date_default_timezone_set($timezone_string);
